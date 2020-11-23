@@ -33,10 +33,11 @@ def extended_powell_singular_function(n):
     return func
 
 def trigonometric_function(n):
-        def func(x):
+    def func(x):
         res = 0.00000000000
-        for i in range(len(x)):
-            res += len(x) - torch.sum(torch.cos(x)) + (i+1)*(1- torch.cos(x[i])) - torch.sin(x[i])
+        for i in range(n):
+            f = len(x) - torch.sum(torch.cos(x)) + (i+1)*(1 - torch.cos(x[i])) - torch.sin(x[i])
+            res += f**2
         return res
     return func
 

@@ -18,25 +18,28 @@ def wood_function(x):
 
     return f1**2 + f2**2 + f3**2 + f4**2 + f5**2 + f6**2
 
-def extended_powell_singular_function(x, n):
+def extended_powell_singular_function(n):
+    def func(x):
+        i = 1
+        res = 0.000000000
+        while 4*i <= n:
+            f1 = x[4*i-3 -1] + 10 * x[4*i -2 -1]
+            f2 = np.sqrt(5) * (x[4*i -1 - 1] - x[4*i -1])
+            f3 = (x[4*i -2 -1] - 2*x[4*i -1 -1])**2
+            f4 = np.sqrt(10) * (x[4*i -3 -1] - x[4*i -1])** 2
+            res += f1**2 + f2**2 + f3**2 + f4**2
+            i += 1
+        return res
+    return func
 
-    i = 1
-    res = 0.000000000
-    
-    while 4*i <= n:
-        f1 = x[4*i-3 -1] + 10 * x[4*i -2 -1]
-        f2 = np.sqrt(5) * (x[4*i -1 - 1] - x[4*i -1])
-        f3 = (x[4*i -2 -1] - 2*x[4*i -1 -1])**2
-        f4 = np.sqrt(10) * (x[4*i -3 -1] - x[4*i -1])** 2
-        res += f1**2 + f2**2 + f3**2 + f4**2
-        i += 1
-    return res
+def trigonometric_function(n):
+        def func(x):
+        res = 0.00000000000
+        for i in range(len(x)):
+            res += len(x) - torch.sum(torch.cos(x)) + (i+1)*(1- torch.cos(x[i])) - torch.sin(x[i])
+        return res
+    return func
 
-def trigonometric_function(x):
-    res = 0.00000000000
-    for i in range(len(x)):
-        res += len(x) - torch.sum(torch.cos(x)) + (i+1)*(1- torch.cos(x[i])) - torch.sin(x[i])
-    return res
 
 
 class Solver:
@@ -71,10 +74,13 @@ class Solver:
         y.backward()
         value = torch.clone(x.grad.data)
         x.grad.data.zero_()
+        x.requires_grad = False
         return value
     
     def G(self, x):
+        x.requires_grad = True
         h = hessian(self.fn(x), x, create_graph=True).detach()
+        x.requires_grad = False
         return h
          
 
@@ -83,19 +89,19 @@ class Solver:
         lhs = self.fn(x_k + alpha*d_k)
         
         rhs = self.fn(x_k) + rho*torch.matmul(self.g(x_k).view(1, -1),d_k.view(-1,1))*alpha
-        print(lhs)
-        print(rhs)
+        # print(lhs)
+        # print(rhs)
         if lhs <= rhs:
             armijo = True
         else:
             armijo = False
         
         # wolfe
-        lhs = torch.abs(torch.matmul(self.g(x_k + alpha * d_k).view(1, -1) , d_k.view(-1, 1)))
-        rhs = - theta*self.g(x_k).view(1, -1).matmul(d_k.view(-1, 1))
-        print(lhs)
-        print(rhs)
-        if lhs <= rhs:
+        lhs = torch.matmul(self.g(x_k + alpha * d_k).view(1, -1) , d_k.view(-1, 1))
+        rhs =  theta*self.g(x_k).view(1, -1).matmul(d_k.view(-1, 1))
+        # print(lhs)
+        # print(rhs)
+        if lhs >= rhs:
             wolfe = True
         else:
             wolfe = False
@@ -132,8 +138,8 @@ class Solver:
                 alpha_ = alpha[i]
                 alpha[i] = alpha[i+1]
                 i = i + 1
-        a = min(alpha_, alpha[i+1])
-        b = min(alpha_, alpha[i+1])
+        a = min(alpha_, alpha[j])
+        b = min(alpha_, alpha[j])
         return (a, b)
 
     def line_search_alpha(self, x_k=[], d_k=[], a_0=0, b_0=0, sigma=1e-5, tao=GOLD):
@@ -250,96 +256,125 @@ class Solver:
             
             d_k = - H.matmul(gk.T).T
 
-            print(H)
-            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=0.5, gamma=0.1, t=2)
+            # print(H)
+            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=1e-5, gamma=2e-6, t=1.1)
             alpha = self.line_search_alpha(x_k=x_k, d_k=d_k, a_0=a_0, b_0=b_0, sigma=1e-5, tao=GOLD)
             if alpha <= 0 :
                 print("Stop because alpha is negative!")
                 return (x_k, y)
-            print("alpha:{} d_k:{}".format(alpha, d_k))
-            w_check = self.strong_wolfe_check(x_k, alpha=alpha, d_k=d_k, theta=0.2, rho=0.1)
+            # print("alpha:{} d_k:{}".format(alpha, d_k))
+            w_check = self.strong_wolfe_check(x_k, alpha=alpha, d_k=d_k, theta=0.3, rho=0.2)
             if not w_check:
                 print("Stop because violate wolfe check !")
                 return (x_k, y)
             
             xk_1 = x_k + alpha*d_k
-            yk_1 = self.fn(xk_1)
-            gk_1 = self.g(x_k)
+            # yk_1 = self.fn(xk_1)
+            gk_1 = self.g(xk_1)
             sk = xk_1 - x_k
             yk = gk_1 - gk
-            H = H + (sk - H.matmul(yk.T).T).T.matmul((sk - H.matmul(yk.T).T)) / ((sk - H.matmul(yk.T).T).T.matmul(yk))
+            sk = sk.view(-1, 1)
+            yk = yk.view(-1, 1)
+            # print("sk: {} yk:{}".format(sk.data, yk.data))
+            H = H + (sk - H.matmul(yk)).matmul((sk - H.matmul(yk)).T) / ((sk - H.matmul(yk)).T.matmul(yk))
             x_k = xk_1
+            y_prev = y
 
         print("Stop till the max iteration !")
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
 
     def bfgs(self, x_k):
+        y_prev = None
         H = torch.eye(len(x_k), dtype=torch.float)
         for j in range(self.max_iter):
             # stop criterion
             y = self.fn(x_k)
             gk = self.g(x_k)
-            print("Iter: {}  x_k: {} y_k:{}".format(j, x_k, y)) 
-            if torch.abs(y - x_k) < self.eps or torch.abs(gk) < self.eps:
-                print("Find the optimal")
+            print("Iter: {}  x_k: {} y_k:{}".format(j+1, x_k.data, y.data)) 
+            if torch.norm(gk) < self.eps:
+                print("Find optimal x:{} y:{}".format(x_k, y))
                 return (x_k, y)
             
-            d_k = - H*gk
-            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=0.2, gamma=0.1, t=2)
+            elif j > 0:
+                if torch.abs(y - y_prev) < self.eps:
+                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
+                    return (x_k, y)
+            
+            d_k = - H.matmul(gk.T).T
+            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=1e-5, gamma=1e-6, t=1.1)
             alpha = self.line_search_alpha(x_k=x_k, d_k=d_k, a_0=a_0, b_0=b_0, sigma=1e-5, tao=GOLD)
+            # print(alpha)
             if alpha <= 0 :
                 print("Stop because alpha is negative!")
-            w_check = self.strong_wolfe_check(x_k, alpha=alpha, d_k=d_k, theta=0.25, rho=0.1)
+                return (x_k, y)
+            w_check = self.strong_wolfe_check(x_k, alpha=alpha, d_k=d_k, theta=0.3, rho=0.2)
             if not w_check:
-                print("Stop because not satify wolfe check !")
+                print("Stop because violate wolfe check !")
+                return (x_k, y)
             
             xk_1 = x_k + alpha*d_k
             # yk_1 = self.fn(xk_1)
-            gk_1 = self.g(x_k)
+            gk_1 = self.g(xk_1)
             sk = xk_1 - x_k
             yk = gk_1 - gk
 
-            H = H + (1 + torch.transpose(yk)*H*yk/(torch.transpose(yk)*sk))*(sk* torch.transpose(sk))/(torch.transpose(yk)*sk) - (sk*torch.transpose(yk)*H + H*yk*torch.transpose(sk))/(torch.transpose(yk)*sk)
-            x_k = xk_1
+            sk = sk.view(-1, 1)
+            yk = yk.view(-1, 1)
 
-            print(H)
+            H = H + (torch.eye(sk.size(0)) + yk.T.matmul(H).matmul(yk)/(yk.T.matmul(sk))).matmul((sk.matmul(sk.T))/(yk.T.matmul(sk))) - (sk.matmul(yk.T).matmul(H) + H.matmul(yk).matmul(sk.T))/(yk.T.matmul(sk))
+            x_k = xk_1
+            y_prev = y
+            # print(H)
         print("Stop till the max iteration !")
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k, y))
         return (x_k, y)
 
 
     def dfp(self, x_k):
+        y_prev = None
         H = torch.eye(len(x_k), dtype=torch.float)
         for j in range(self.max_iter):
             # stop criterion
             y = self.fn(x_k)
             gk = self.g(x_k)
-            print("Iter: {}  x_k: {} y_k:{}".format(j, x_k, y)) 
-            if torch.abs(y - x_k) < self.eps or torch.abs(gk) < self.eps:
-                print("Find the optimal")
+            print("Iter: {}  x_k: {} y_k:{}".format(j+1, x_k.data, y.data)) 
+            if torch.norm(gk) < self.eps:
+                print("Find optimal x:{} y:{}".format(x_k, y))
                 return (x_k, y)
             
-            d_k = - H*gk
-            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=0.2, gamma=0.1, t=2)
+            elif j > 0:
+                if torch.abs(y - y_prev) < self.eps:
+                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
+                    return (x_k, y)
+            # print("H : {}".format(H))
+            d_k = - H.matmul(gk.T).T
+            a_0, b_0 = self.init_line_search(x_k=x_k, d_k=d_k, alpha=1e-5, gamma=1e-6, t=1.3)
             alpha = self.line_search_alpha(x_k=x_k, d_k=d_k, a_0=a_0, b_0=b_0, sigma=1e-5, tao=GOLD)
             if alpha <= 0 :
                 print("Stop because alpha is negative!")
+                retun(x_k, y)
             w_check = self.strong_wolfe_check(x_k, alpha=alpha, d_k=d_k, theta=0.25, rho=0.1)
             if not w_check:
                 print("Stop because not satify wolfe check !")
-            
+                return(x_k, y)
             xk_1 = x_k + alpha*d_k
             
-            gk_1 = self.g(x_k)
+            gk_1 = self.g(xk_1)
             sk = xk_1 - x_k
             yk = gk_1 - gk
-
-            H = H + sk*torch.transpose(sk)/(torch.transpose(sk)*yk) - H*yk*torch.transpose(yk)*H/(torch.transpose(yk)*H*yk)
+            # print()
+            # print("H : {} sk:{} yk:{} ".format(H.shape, sk.shape, yk.shape))
+            sk = sk.view(1,-1)
+            yk = yk.view(1,-1)
+            H = H + sk.T.matmul(sk)/(sk.matmul(yk.T)) - H.matmul(yk.T).matmul(yk).matmul(H)/(yk.matmul(H).matmul(yk.T))
+            # print("H : {}".format(H))
             x_k = xk_1
+            y_prev = y
         print("Stop till the max iteration !")
         print(" Iter: {} x_k : {} y_k: {}".format(j+1, x_k, y))
         return (x_k, y)
+
 
 
 if __name__ == "__main__":
@@ -370,7 +405,7 @@ if __name__ == "__main__":
         check  = solver.strong_wolfe_check(x0, alpha=alpha
         ,d_k=d_k, theta=0.2, rho=0.1)
         # print("alpha: ", alpha)
-        print("Iter:{0} x_{0}:{1} y_{0}:{2} alpha_{0}:{3} ".format(j, x0.data, solver.fn(x0).data, alpha))
+        print("Iter:{0} x_{0}:{1} y_{0}:{2}".format(j, x0.data, solver.fn(x0).data))
         x0 = x0  + alpha*d_k
         # print("xk:", x0.data)
         # print("yk: ", solver.fn(x0).data)
@@ -381,11 +416,124 @@ if __name__ == "__main__":
             break
     
     print("\t ## DAMPED NEWTON ## ")
-    # x0 = X0
     x_k, y = solver.damped_newton_method(solver.x_0)
 
     print("\t ## SR1 ##")
     x_k, y = solver.sr1(solver.x_0)
+
+    print("\t ## BFGS ##")
+    x_k, y = solver.bfgs(solver.x_0)
+
+    print("\t ## DFP ##")
+    x_k, y = solver.dfp(solver.x_0)
+
+    m_values = [20, 40, 60, 80, 100]
+    for m in m_values:
+        print("============= {} =========".format("EXTENDED POWELL SINGULAR FUNCTION (m:{})".format(m)))
+
+        fn = extended_powell_singular_function(m)
+        x0 = []
+        for i in range(int(m/4)):
+            x0 += [3, -1, 0, 1]
+        x0 = torch.tensor(x0, dtype=torch.float)
+        n = m
+        m = m
+        solver = Solver(
+        n = n,
+        m = m,
+        fn = fn,
+        x_0 = x0,
+        x_minimal = torch.tensor([0]*m, dtype=torch.float),
+        y_minimal= 0,
+        eps = 1e-8,
+        max_iter = 100
+    )
+        print("\t ## LINE SEARCH ##")
+        print(fn(solver.x_0))
+        for j in range(10):
+            d_k = solver.x_minimal - solver.x_0
+            
+            # print("y0: {}".format(solver.fn(x0).data))
+            # print("dk : {}".format(d_k))
+            a0,b0 = solver.init_line_search(x0, d_k, alpha=0.3, gamma=0.06, t=2)
+            alpha = solver.line_search_alpha(x0, d_k, a0, b0)
+            check  = solver.strong_wolfe_check(x0, alpha=alpha
+            ,d_k=d_k, theta=0.2, rho=0.1)
+            # print("alpha: ", alpha)
+            print("Iter:{0} x_{0}:{1} y_{0}:{2}".format(j, x0.data, solver.fn(x0).data))
+            x0 = x0  + alpha*d_k
+            # print("xk:", x0.data)
+            # print("yk: ", solver.fn(x0).data)
+            
+            if not check:
+                print("Stop because of violating wolfe!")
+                print("Find Optimal x:{} y:{}".format((x0 - alpha*d_k).data, solver.fn(x0 - alpha*d_k).data))
+                break
+        
+        print("\t ## DAMPED NEWTON ## ")
+        x_k, y = solver.damped_newton_method(solver.x_0)
+
+        print("\t ## SR1 ##")
+        x_k, y = solver.sr1(solver.x_0)
+
+        print("\t ## BFGS ##")
+        x_k, y = solver.bfgs(solver.x_0)
+
+        print("\t ## DFP ##")
+        x_k, y = solver.dfp(solver.x_0)
+    
+    n_values = [20, 40, 60, 80, 100]
+    for n in n_values:
+        print("============= {} =========".format("TRIGONOMETRIC FUNCTION (n:{})".format(n)))
+
+        fn = trigonometric_function
+        
+        x0 = torch.tensor([1/n]*n, dtype=torch.float)
+        
+        solver = Solver(
+        n = n,
+        m = n,
+        fn = fn,
+        x_0 = x0,
+        x_minimal = torch.tensor([0]*n, dtype=torch.float),
+        y_minimal= 0,
+        eps = 1e-8,
+        max_iter = 100
+    )
+        print("\t ## LINE SEARCH ##")
+        print(fn(solver.x_0))
+        for j in range(10):
+            d_k = solver.x_minimal - solver.x_0
+            
+            # print("y0: {}".format(solver.fn(x0).data))
+            # print("dk : {}".format(d_k))
+            a0,b0 = solver.init_line_search(x0, d_k, alpha=0.3, gamma=0.06, t=2)
+            alpha = solver.line_search_alpha(x0, d_k, a0, b0)
+            check  = solver.strong_wolfe_check(x0, alpha=alpha
+            ,d_k=d_k, theta=0.2, rho=0.1)
+            # print("alpha: ", alpha)
+            print("Iter:{0} x_{0}:{1} y_{0}:{2}".format(j, x0.data, solver.fn(x0).data))
+            x0 = x0  + alpha*d_k
+            # print("xk:", x0.data)
+            # print("yk: ", solver.fn(x0).data)
+            
+            if not check:
+                print("Stop because of violating wolfe!")
+                print("Find Optimal x:{} y:{}".format((x0 - alpha*d_k).data, solver.fn(x0 - alpha*d_k).data))
+                break
+        
+        print("\t ## DAMPED NEWTON ## ")
+        x_k, y = solver.damped_newton_method(solver.x_0)
+
+        print("\t ## SR1 ##")
+        x_k, y = solver.sr1(solver.x_0)
+
+        print("\t ## BFGS ##")
+        x_k, y = solver.bfgs(solver.x_0)
+
+        print("\t ## DFP ##")
+        x_k, y = solver.dfp(solver.x_0)
+    
 
 
 

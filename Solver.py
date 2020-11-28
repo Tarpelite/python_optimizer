@@ -141,29 +141,7 @@ class Solver:
         b = min(alpha_, alpha[j])
         return (a, b)
 
-    def line_search_alpha(self, x_k=[], d_k=[], a_0=0, b_0=0, sigma=1e-5, tao=GOLD):
-        a = [a_0]
-        b = [b_0]
-        a_l = []
-        a_r = []
-        i = 0
-        for j in range(self.max_iter):
-            if b[i] - a[i] < sigma:
-                alpha_star = (b[i] + a [i]) /2
-                return alpha_star
-            a_l.append( a[i] + (1 - tao)*(b[i] - a[i]))
-            a_r.append( a[i] + tao*(b[i] - a[i]) )
-
-            if self.fn(x_k + a_l[i] * d_k) < self.fn(x_k + a_r[i] * d_k):
-                a.append(a[i])
-                b.append(a_r[i])
-            else:
-                a.append(a_l[i])
-                b.append(b[i])
-                i = i + 1
-
-        alpha_star = (b[i] + a [i]) /2
-        return alpha_star
+    
     
     def my_line_search_alpha(self, x_k=0, d_k=0, a_0=0.001, b_0=0.001, eps=1e-5, max_iter=None):
         if max_iter:
@@ -243,6 +221,7 @@ class Solver:
             alpha = self.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
             y  = self.fn(x_k).data
             
+            d_k = d_k / torch.norm(d_k)
             x_k = x_k + alpha*d_k
             iter_bar.set_description("y:{} alpha:{}".format(y, alpha))
             if torch.abs(self.fn(x_k + alpha*d_k) - y) < self.eps or torch.norm(self.g(x_k)) < self.eps:
@@ -264,16 +243,12 @@ class Solver:
         # when i= 0
         alpha = alpha_0
         Alpha[1] = Alpha[0] + Gamma[0]
-        for j in range(1, self.max_iter):
-            
-            if Alpha[1] > 0 and self.fn(x_k + Alpha[1]*d_k) >= self.fn(x_k + Alpha[0]*d_k):
-                break
+        if Alpha[1] > 0 and self.fn(x_k + Alpha[1]*d_k) >= self.fn(x_k + Alpha[0]*d_k):
             if Alpha[1] <= 0:
                 Alpha[1] = 0
             Gamma[0] = - Gamma[0]
             alpha = Alpha[1]
             Alpha[1] = Alpha[0] + Gamma[0]
-            # print(Alpha[1])
 
         for i in range(1, self.max_iter):
             # step 2
@@ -321,11 +296,13 @@ class Solver:
             
             G_k = self.G(x_k)
             d_k = - torch.inverse(G_k).matmul(gk.T).T
-            alpha = solver.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+            d_k = d_k / torch.norm(d_k)
+            alpha = self.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
            
-            iter_bar.set_description("y:%.8f alpha:%.8f"%(y.data, alpha))
+            iter_bar.set_description("y:{} alpha:{}".format(y.data, alpha))
+            
             x_k = x_k + alpha*d_k
-            print("alpha:{}".format(alpha))
+            # print("alpha:{}".format(alpha))
             y_prev = torch.clone(y)
         
         print("Stop till the max iteration !")
@@ -334,10 +311,10 @@ class Solver:
     
     
 
-    def sr1(self,x_k, alpha_0=0.001, gamma_0=0.001, t=1.2):
+    def sr1(self,x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
         y_prev = None
         H = torch.eye(len(x_k), dtype=torch.float)
-        iter_bar = trange(self.max_iter)
+        iter_bar = trange(max_iter) if max_iter is not None else trange(self.max_iter)
         for j in iter_bar:
             # stop criterion
             y = self.fn(x_k)
@@ -353,8 +330,9 @@ class Solver:
                     return (x_k, y)
             
             d_k = - H.matmul(gk.T).T
+            d_k = d_k /torch.norm(d_k) 
 
-            alpha = solver.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=0.25, rho=0.1)
+            alpha = self.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
             # print("alpha:{} d_k:{}".format(alpha, d_k))
             iter_bar.set_description("y:%.8f alpha:%.8f"%(y, alpha))
             xk_1 = x_k + alpha*d_k
@@ -392,20 +370,22 @@ class Solver:
                     return (x_k, y)
             # print(H)
             d_k = - H.matmul(gk.T).T
-            alpha = solver.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
-            # print("alpha:{} d_k:{}".format(alpha, d_k))
+            d_k = d_k / torch.norm(d_k)
+            
+            alpha = self.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+            print("alpha:{} d_k:{}".format(alpha, d_k))
             iter_bar.set_description("y:%.8f alpha:%.8f"%(y, alpha))
             xk_1 = x_k + alpha*d_k
             # yk_1 = self.fn(xk_1)
             gk_1 = self.g(xk_1)
             fk_1 = self.fn(x_k + alpha*d_k)
             
-            if fk_1 > y + rho*gk.view(1, -1).matmul(d_k.view(-1, 1))*alpha:
-                print("Stop because Armijo !")
-                return (x_k, y)
-            elif gk_1.view(1, -1).matmul(d_k.view(-1, 1)) < sigma*gk.view(1, -1).matmul(d_k.view(-1, 1)):
-                print("Stop because Wolfe !")
-                return (x_k, y)
+            # if fk_1 > y + rho*gk.view(1, -1).matmul(d_k.view(-1, 1))*alpha:
+            #     print("Stop because Armijo !")
+            #     return (x_k, y)
+            # elif gk_1.view(1, -1).matmul(d_k.view(-1, 1)) < sigma*gk.view(1, -1).matmul(d_k.view(-1, 1)):
+            #     print("Stop because Wolfe !")
+            #     return (x_k, y)
             sk = xk_1 - x_k
             yk = gk_1 - gk
 
@@ -440,7 +420,8 @@ class Solver:
                     return (x_k, y)
             
             d_k = - H.matmul(gk.T).T
-            alpha = solver.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+            d_k = d_k/ torch.norm(d_k)
+            alpha = self.my_line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
             iter_bar.set_description("y:{} alpha:{}".format(y, alpha))
            
             xk_1 = x_k + alpha*d_k
@@ -473,20 +454,20 @@ def test_wood_function():
         eps = 1e-8,
         max_iter = 100
     )
-    print("\t ## LINE SEARCH ##")
-    x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=1e-4, gamma_0=0.01, t=1.2, max_iter=1000)
+    # print("\t ## LINE SEARCH ##")
+    # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.01, t=1.2, max_iter=1000)
 
-    print("\t ## DAMPED NEWTON ## ")
-    x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.01, max_iter=1000)
+    # print("\t ## DAMPED NEWTON ## ")
+    # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.01, max_iter=1000)
 
     print("\t ## SR1 ##")
-    x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-4, gamma_0=0.01, t=1.2)
+    x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
 
-    print("\t ## BFGS ##")
-    x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1e-4, gamma_0=0.01, t=1.2)
+    # print("\t ## BFGS ##")
+    # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2， max_iter=1000)
 
-    print("\t ## DFP ##")
-    x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-4, gamma_0=0.01, t=1.2)
+    # print("\t ## DFP ##")
+    # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.5, max_iter=1000)
 
     return
 
@@ -509,20 +490,20 @@ def test_extended_poweel_singular_function(m_values=[20, 40, 60, 80, 100]):
         max_iter = 100
     )
         print("\t ## LINE SEARCH ##")
-        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2, max_iter=1000)
+        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2, max_iter=100)
    
         
         print("\t ## DAMPED NEWTON ## ")
-        x_k, y = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.01, t=1.2, max_iter=1000)
+        x_k, y = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.01, t=1.2, max_iter=100)
 
         print("\t ## SR1 ##")
-        x_k, y = solver.sr1(solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2)
+        x_k, y = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1000)
 
         print("\t ## BFGS ##")
-        x_k, y = solver.bfgs(solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2, max_iter=100)
+        x_k, y = solver.bfgs(solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2, max_iter=1000)
 
         print("\t ## DFP ##")
-        x_k, y = solver.dfp(solver.x_0, alpha_0=1e-5, gamma_0=0.01, t=1.2)
+        x_k, y = solver.dfp(solver.x_0, alpha_0=1e-3, gamma_0=0.01, t=1.2, max_iter=10000)
 
 def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
     for n in n_values:
@@ -582,6 +563,5 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
 
 if __name__ == "__main__":
     test_wood_function()
-    test_extended_poweel_singular_function()
-    test_trigonometric_function()
-   
+    # test_extended_poweel_singular_function()
+    # test_trigonometric_function()

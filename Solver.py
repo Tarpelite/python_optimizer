@@ -226,6 +226,47 @@ class Solver:
         b = max(alpha, Alpha[i])
 
         return (a, b)
+    
+    def LM_method(self, x_k, alpha_0=0.001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
+        y_prev = None
+        MAX_ITER = max_iter if max_iter is not None else self.max_iter
+        iter_bar = trange(MAX_ITER)
+        vk=0.5
+        for j in iter_bar:
+            y = self.fn(x_k)
+            gk = self.g(x_k)
+            # print("Iter: {}  x_k: {} y_k:{}".format(j+1 , x_k.data, y.data)) 
+            
+            if torch.norm(gk) < self.eps:
+                print("Find optimal x:{} y:{}".format(x_k, y))
+                return (x_k, y)
+            elif j > 0:
+                if torch.abs(y - y_prev) < self.eps:
+                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
+                    return (x_k, y)
+            
+            G_k = self.G(x_k)
+            while True:
+                G_k = G_k + vk*torch.eye(G_k.size(0))
+                try:
+                    torch.cholesky(G_k)
+                    break
+                except Exception as e:
+                    continue
+
+            d_k = - torch.inverse(G_k).matmul(gk.T).T
+            d_k = d_k / torch.norm(d_k)
+            alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+           
+            iter_bar.set_description("y:{} alpha:{}".format(y.data, alpha))
+            
+            x_k = x_k + alpha*d_k
+            # print("alpha:{}".format(alpha))
+            y_prev = torch.clone(y)
+        
+        print("Stop till the max iteration !")
+        print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
+        return (x_k, y)
 
     def damped_newton_method(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
         y_prev = None
@@ -246,6 +287,11 @@ class Solver:
                     return (x_k, y)
             
             G_k = self.G(x_k)
+            try: 
+                torch.cholesky(G_k)
+            except Exception as e:
+                print("G_k is not symmetric positive definite")
+                break
             d_k = - torch.inverse(G_k).matmul(gk.T).T
             d_k = d_k / torch.norm(d_k)
             alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
@@ -336,14 +382,7 @@ class Solver:
             xk_1 = x_k + alpha*d_k
             # yk_1 = self.fn(xk_1)
             gk_1 = self.g(xk_1)
-            fk_1 = self.fn(x_k + alpha*d_k)
             
-            # if fk_1 > y + rho*gk.view(1, -1).matmul(d_k.view(-1, 1))*alpha:
-            #     print("Stop because Armijo !")
-            #     return (x_k, y)
-            # elif gk_1.view(1, -1).matmul(d_k.view(-1, 1)) < sigma*gk.view(1, -1).matmul(d_k.view(-1, 1)):
-            #     print("Stop because Wolfe !")
-            #     return (x_k, y)
             sk = xk_1 - x_k
             yk = gk_1 - gk
 
@@ -396,6 +435,8 @@ class Solver:
         print("Stop till the max iteration !")
         print(" Iter: {} x_k : {} y_k: {}".format(j+1, x_k, y))
         return (x_k, y)
+    
+    
 
 
 
@@ -416,6 +457,12 @@ def test_wood_function():
     solver.reset_call_cnt()
     x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
     print("x:{} y:{}".format(x_ils, y_ils))
+    print("call_cnt:{}".format(solver.call_cnt))
+
+    print("\t ## LM ##")
+    solver.reset_call_cnt()
+    x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
+    print("x:{} y:{}".format(x_lm, y_lm))
     print("call_cnt:{}".format(solver.call_cnt))
 
     print("\t ## DAMPED NEWTON ## ")
@@ -462,35 +509,43 @@ def test_extended_poweel_singular_function(m_values=[20, 40, 60, 80, 100]):
         eps = 1e-8,
         max_iter = 100)
 
+        
+
         print("\t ## LINE SEARCH ##")
         solver.reset_call_cnt()
-        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.001, gamma_0=0.001, t=1.2, max_iter=1500)
+        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
         print("x:{} y:{}".format(x_ils, y_ils))
         print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DAMPED NEWTON ## ")
-        # solver.reset_call_cnt()
-        # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dn, y_dn))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## LM ##")
+        solver.reset_call_cnt()
+        x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_lm, y_lm))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## SR1 ##")
-        # solver.reset_call_cnt()
-        # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_sr1, y_sr1))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## DAMPED NEWTON ## ")
+        solver.reset_call_cnt()
+        x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dn, y_dn))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## BFGS ##")
-        # solver.reset_call_cnt()
-        # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
-        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## SR1 ##")
+        solver.reset_call_cnt()
+        x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_sr1, y_sr1))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DFP ##")
-        # solver.reset_call_cnt()
-        # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dfp, y_dfp))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## BFGS ##")
+        solver.reset_call_cnt()
+        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
+
+        print("\t ## DFP ##")
+        solver.reset_call_cnt()
+        x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dfp, y_dfp))
+        print("call_cnt:{}".format(solver.call_cnt))
 
 def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
     for n in n_values:
@@ -511,44 +566,43 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
         max_iter = 100
     )
         print("\t ## LINE SEARCH ##")
-        print(fn(solver.x_0))
-        x0 = solver.x_0
-        for j in trange(1000):
-            d_k = - solver.g(x=x0)
-            
-            # print("y0: {}".format(solver.fn(x0).data))
+        solver.reset_call_cnt()
+        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_ils, y_ils))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-            alpha = solver.line_search_step(x0=x0, d0=d_k, alpha_0=0.5, gamma_0=0.001, t=1.2,sigma=0.25, rho=0.1)
-            # a0,b0 = solver.init_search_area(x0, d_k, alpha_0=0.01, gamma_0=0.001, t=1.2)
-            # print("a0:{}, b0:{}".format(a0, b0))
-            # alpha = solver.line_search_alpha(x0, d_k, a0, b0)
-            # check  = solver.strong_wolfe_check(x0, alpha=alpha
-            # ,d_k=d_k, theta=0.2, rho=0.1)
-            print("alpha: ", alpha)
-            print("Iter:{0} x_{0}:{1} y_{0}:{2}".format(j, x0.data, solver.fn(x0).data))
-            x0 = x0  + alpha*d_k
+        print("\t ## LM ##")
+        solver.reset_call_cnt()
+        x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_lm, y_lm))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-            if torch.abs(solver.fn(x0 + alpha*d_k) - solver.fn(x0)) < solver.eps or torch.norm(solver.g(x0)) < solver.eps:
-                print("Find optimal:")
-                print(x0.data)
-                print(solver.fn(x0+alpha*d_k).data)
-                break
-            
-        
         print("\t ## DAMPED NEWTON ## ")
-        x_k, y = solver.damped_newton_method(solver.x_0, alpha_0=0.5, gamma_0=0.001)
+        solver.reset_call_cnt()
+        x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dn, y_dn))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         print("\t ## SR1 ##")
-        x_k, y = solver.sr1(solver.x_0, alpha_0=0.5, gamma_0=0.001)
+        solver.reset_call_cnt()
+        x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_sr1, y_sr1))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         print("\t ## BFGS ##")
-        x_k, y = solver.bfgs(solver.x_0, alpha_0=0.5, gamma_0=0.001)
+        solver.reset_call_cnt()
+        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         print("\t ## DFP ##")
-        x_k, y = solver.dfp(solver.x_0, alpha_0=0.5, gamma_0=0.001)
+        solver.reset_call_cnt()
+        x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dfp, y_dfp))
+        print("call_cnt:{}".format(solver.call_cnt))
 
 
 if __name__ == "__main__":
     test_wood_function()
-    # test_extended_poweel_singular_function()
-    # test_trigonometric_function()
+    test_extended_poweel_singular_function()
+    test_trigonometric_function()

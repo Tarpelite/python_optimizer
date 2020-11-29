@@ -19,10 +19,10 @@ if torch.cuda.is_available():
 def wood_function(x):
     f1 = 10*(x[1] - x[0]**2)
     f2 = 1 - x[0]
-    f3 = np.sqrt(90) * (x[3] - x[2]**2)
+    f3 = torch.sqrt(torch.tensor(90.00)) * (x[3] - x[2]**2)
     f4 = 1 - x[2]
-    f5 = np.sqrt(10) * (x[1] + x[3] -2)
-    f6 = np.power(10, - 0.5) * (x[1]- x[3])
+    f5 = torch.sqrt(torch.tensor(10.00)) * (x[1] + x[3] -2)
+    f6 = torch.pow(torch.tensor(10.00), - 0.5) * (x[1]- x[3])
 
     return f1**2 + f2**2 + f3**2 + f4**2 + f5**2 + f6**2
 
@@ -32,9 +32,9 @@ def extended_powell_singular_function(n):
         res = 0.000000000
         while 4*i <= n:
             f1 = x[4*i-3 -1] + 10 * x[4*i -2 -1]
-            f2 = np.sqrt(5) * (x[4*i -1 - 1] - x[4*i -1])
+            f2 = torch.sqrt(torch.tensor(5.000)) * (x[4*i -1 - 1] - x[4*i -1])
             f3 = (x[4*i -2 -1] - 2*x[4*i -1 -1])**2
-            f4 = np.sqrt(10) * (x[4*i -3 -1] - x[4*i -1])** 2
+            f4 = torch.sqrt(torch.tensor(10.000)) * (x[4*i -3 -1] - x[4*i -1])** 2
             res += f1**2 + f2**2 + f3**2 + f4**2
             i += 1
         return res
@@ -73,9 +73,19 @@ class Solver:
         self.call_cnt = 0
     
     def reset_call_cnt(self):
+        '''
+        reset function call counter to zero
+        '''
         self.call_cnt = 0
 
     def g(self, x):
+        '''
+        caculate the derivatives of x
+        params:
+            x:  float type tensor
+        returns:
+            g(x) : the same shape tensor as x
+        '''
         self.call_cnt += 1
         x = x.detach()
         x.requires_grad = True
@@ -87,6 +97,13 @@ class Solver:
         return value
     
     def G(self, x):
+        '''
+        caculate the hessian of x
+        params:
+            x: float type tensor [1, N]
+        returns:
+            G(x) : the hessian matrix of x, shape [N , N]
+        '''
         self.call_cnt += 1
         x.requires_grad = True
         h = hessian(self.fn(x), x, create_graph=True).detach()
@@ -95,6 +112,18 @@ class Solver:
     
     
     def line_search_alpha(self, x_k=0, d_k=0, a_0=0.001, b_0=0.001, eps=1e-5, max_iter=None):
+        '''
+        GOLD line search
+        params:
+            x_k : the x value at step k
+            d_k : the descent direction at step k
+            a_0 : the left boundry of search area
+            b_0 : the right boundry of search area
+            eps : control the precision of searching
+            max_iter: max iterations
+        returns:
+            alpha: the Optimized step size
+        '''
         self.call_cnt += 1
         if max_iter:
             MAX_ITER = max_iter
@@ -121,6 +150,17 @@ class Solver:
         return (A[i] + B[i])*0.5
 
     def line_search_step(self, x0=0, d0=0, alpha_0=0, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1):
+        '''
+        params:
+            x0 : init search point x0
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+        returns:
+            alpha:  optimized step size
+        '''
         self.call_cnt += 1
 
         a0, b0 = self.init_search_area(x0, d0, alpha_0= alpha_0, gamma_0=gamma_0, t=t)
@@ -155,12 +195,16 @@ class Solver:
     def line_search(self, x_k=0, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=1, max_iter=None):
         '''
         params:
-            theta: the theta controls the strong wolf principle
-            rho: the rho controls the the Armijo principle where 1 > theta > rho > 0
-        return:
-            (x, y)
-            x: the location of the minimize point
-            y： the minimal value
+            x_k : init point x_k
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
+        returns:
+            x*: Optimal x*
+            y: Optimal Value y
         '''
         self.call_cnt += 1
         
@@ -185,6 +229,17 @@ class Solver:
         return (x_k, y)
     
     def init_search_area(self, x_k=0, d_k=0, alpha_0=0, gamma_0=0.01, t=1.2):
+        '''
+        params:
+            x_k : the x value at step k
+            d_k : the descent direction at step k
+            alpha_0 : the initial step size
+            gamma_0 : to adjuest step size
+            t : to adjust step size
+        returns:
+            a : the left boundry of initial search area
+            b : the right boundry of initial search area
+        '''
         self.call_cnt += 1
         Alpha = [0.00000]*(self.max_iter + 1)
         Gamma = [0.00000]*(self.max_iter + 1)
@@ -228,6 +283,19 @@ class Solver:
         return (a, b)
     
     def LM_method(self, x_k, alpha_0=0.001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
+        '''
+        params:
+            x_k : init point x_k
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
+        returns:
+            x*: Optimal x*
+            y: Optimal Value y
+        '''
         y_prev = None
         MAX_ITER = max_iter if max_iter is not None else self.max_iter
         iter_bar = trange(MAX_ITER)
@@ -269,6 +337,19 @@ class Solver:
         return (x_k, y)
 
     def damped_newton_method(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
+        '''
+        params:
+            x_k : init point x_k
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
+        returns:
+            x*: Optimal x*
+            y: Optimal Value y
+        '''
         y_prev = None
         MAX_ITER = max_iter if max_iter is not None else self.max_iter
         iter_bar = trange(MAX_ITER)
@@ -308,6 +389,11 @@ class Solver:
         params:
             x_k : init point x_k
             alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
         returns:
             x*: Optimal x*
             y: Optimal Value y
@@ -356,6 +442,11 @@ class Solver:
         params:
             x_k : init point x_k
             alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
         returns:
             x*: Optimal x*
             y: Optimal Value y
@@ -402,6 +493,19 @@ class Solver:
 
 
     def dfp(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter = None):
+        '''
+        params:
+            x_k : init point x_k
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
+        returns:
+            x*: Optimal x*
+            y: Optimal Value y
+        '''
         y_prev = None
         H = torch.eye(len(x_k), dtype=torch.float)
         iter_bar = trange(max_iter) if max_iter else trange(self.max_iter)
@@ -456,11 +560,11 @@ def test_wood_function():
         eps = 1e-8,
         max_iter = 100
     )
-    # print("\t ## LINE SEARCH ##")
-    # solver.reset_call_cnt()
-    # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
-    # print("x:{} y:{}".format(x_ils, y_ils))
-    # print("call_cnt:{}".format(solver.call_cnt))
+    print("\t ## LINE SEARCH ##")
+    solver.reset_call_cnt()
+    x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+    print("x:{} y:{}".format(x_ils, y_ils))
+    print("call_cnt:{}".format(solver.call_cnt))
 
     print("\t ## LM ##")
     solver.reset_call_cnt()
@@ -468,29 +572,29 @@ def test_wood_function():
     print("x:{} y:{}".format(x_lm, y_lm))
     print("call_cnt:{}".format(solver.call_cnt))
 
-    # print("\t ## DAMPED NEWTON ## ")
-    # solver.reset_call_cnt()
-    # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-    # print("x:{} y:{}".format(x_dn, y_dn))
-    # print("call_cnt:{}".format(solver.call_cnt))
+    print("\t ## DAMPED NEWTON ## ")
+    solver.reset_call_cnt()
+    x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+    print("x:{} y:{}".format(x_dn, y_dn))
+    print("call_cnt:{}".format(solver.call_cnt))
 
-    # print("\t ## SR1 ##")
-    # solver.reset_call_cnt()
-    # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-    # print("x:{} y:{}".format(x_sr1, y_sr1))
-    # print("call_cnt:{}".format(solver.call_cnt))
+    print("\t ## SR1 ##")
+    solver.reset_call_cnt()
+    x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+    print("x:{} y:{}".format(x_sr1, y_sr1))
+    print("call_cnt:{}".format(solver.call_cnt))
 
-    # print("\t ## BFGS ##")
-    # solver.reset_call_cnt()
-    # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=0.13, gamma_0=0.01, t=1.2, max_iter=1000)
-    # print("x:{} y:{}".format(x_bfgs, y_bfgs))
-    # print("call_cnt:{}".format(solver.call_cnt))
+    print("\t ## BFGS ##")
+    solver.reset_call_cnt()
+    x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=0.13, gamma_0=0.01, t=1.2, max_iter=1000)
+    print("x:{} y:{}".format(x_bfgs, y_bfgs))
+    print("call_cnt:{}".format(solver.call_cnt))
 
-    # print("\t ## DFP ##")
-    # solver.reset_call_cnt()
-    # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-    # print("x:{} y:{}".format(x_dfp, y_dfp))
-    # print("call_cnt:{}".format(solver.call_cnt))
+    print("\t ## DFP ##")
+    solver.reset_call_cnt()
+    x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+    print("x:{} y:{}".format(x_dfp, y_dfp))
+    print("call_cnt:{}".format(solver.call_cnt))
 
     return
 
@@ -512,13 +616,11 @@ def test_extended_poweel_singular_function(m_values=[20, 40, 60, 80, 100]):
         eps = 1e-8,
         max_iter = 100)
 
-        
-
-        # print("\t ## LINE SEARCH ##")
-        # solver.reset_call_cnt()
-        # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_ils, y_ils))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## LINE SEARCH ##")
+        solver.reset_call_cnt()
+        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_ils, y_ils))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         print("\t ## LM ##")
         solver.reset_call_cnt()
@@ -526,29 +628,29 @@ def test_extended_poweel_singular_function(m_values=[20, 40, 60, 80, 100]):
         print("x:{} y:{}".format(x_lm, y_lm))
         print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DAMPED NEWTON ## ")
-        # solver.reset_call_cnt()
-        # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dn, y_dn))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## DAMPED NEWTON ## ")
+        solver.reset_call_cnt()
+        x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dn, y_dn))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## SR1 ##")
-        # solver.reset_call_cnt()
-        # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_sr1, y_sr1))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## SR1 ##")
+        solver.reset_call_cnt()
+        x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_sr1, y_sr1))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## BFGS ##")
-        # solver.reset_call_cnt()
-        # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
-        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## BFGS ##")
+        solver.reset_call_cnt()
+        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DFP ##")
-        # solver.reset_call_cnt()
-        # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dfp, y_dfp))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## DFP ##")
+        solver.reset_call_cnt()
+        x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dfp, y_dfp))
+        print("call_cnt:{}".format(solver.call_cnt))
 
 def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
     for n in n_values:
@@ -559,8 +661,6 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
         x0 = torch.tensor([1/n]*n, dtype=torch.float)
         
         solver = Solver(
-        n = n,
-        m = n,
         fn = fn,
         x_0 = x0,
         x_minimal = torch.tensor([0]*n, dtype=torch.float),
@@ -568,11 +668,12 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
         eps = 1e-8,
         max_iter = 100
     )
-        # print("\t ## LINE SEARCH ##")
-        # solver.reset_call_cnt()
-        # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_ils, y_ils))
-        # print("call_cnt:{}".format(solver.call_cnt))
+       
+        print("\t ## LINE SEARCH ##")
+        solver.reset_call_cnt()
+        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_ils, y_ils))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         print("\t ## LM ##")
         solver.reset_call_cnt()
@@ -580,32 +681,32 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
         print("x:{} y:{}".format(x_lm, y_lm))
         print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DAMPED NEWTON ## ")
-        # solver.reset_call_cnt()
-        # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dn, y_dn))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## DAMPED NEWTON ## ")
+        solver.reset_call_cnt()
+        x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dn, y_dn))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## SR1 ##")
-        # solver.reset_call_cnt()
-        # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_sr1, y_sr1))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## SR1 ##")
+        solver.reset_call_cnt()
+        x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_sr1, y_sr1))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## BFGS ##")
-        # solver.reset_call_cnt()
-        # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
-        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## BFGS ##")
+        solver.reset_call_cnt()
+        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## DFP ##")
-        # solver.reset_call_cnt()
-        # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-        # print("x:{} y:{}".format(x_dfp, y_dfp))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## DFP ##")
+        solver.reset_call_cnt()
+        x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+        print("x:{} y:{}".format(x_dfp, y_dfp))
+        print("call_cnt:{}".format(solver.call_cnt))
 
 
 if __name__ == "__main__":
     test_wood_function()
-    # test_extended_poweel_singular_function()
-    # test_trigonometric_function()
+    test_extended_poweel_singular_function()
+    test_trigonometric_function()

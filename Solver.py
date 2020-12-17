@@ -1,4 +1,6 @@
 import os
+from re import I
+from torch._C import dtype, sparse_coo
 from tqdm import *
 import torch
 from hessian import hessian
@@ -49,7 +51,29 @@ def trigonometric_function(n):
         return res
     return func
 
+def penalty_function_I(n):
+    alpha = 1e-5
+    def func(x):
+        res = 0.00000
+        for i in range(n):
+            f = torch.sqrt(torch.tensor(alpha)) * (x[i] - 1)
+            res += f**2
+        
+        f = torch.sum(x**2) - 1/4
+        res += f**2
+        return res
+    return func
 
+def extended_rosenbrock_function(n):
+    def func(x):
+        res = 0.00000
+        i = 0
+        while 2*i < n:
+            f1 = 10 * (x[2*i] - x[i-1]**2)
+            f2 = 1 - x[2*i-1]
+            res += f1**2 + f2**2
+        return res
+    return func
 
 class Solver:
     def __init__(self, fn=wood_function, x_0=[0], x_minimal=[0], y_minimal=0, eps=10e-8, max_iter=1000):
@@ -382,7 +406,10 @@ class Solver:
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
     
-    
+    def lbfgs(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
+        
+
+        return (x_k)
 
     def sr1(self,x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
         '''
@@ -437,7 +464,7 @@ class Solver:
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
 
-    def bfgs(self, x_k, alpha_0=0.0001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
+    def bfgs(self, x_k, alpha_0=0.0001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None, m=8):
         '''
         params:
             x_k : init point x_k
@@ -451,10 +478,35 @@ class Solver:
             x*: Optimal x*
             y: Optimal Value y
         '''
+        iter_bar = trange(max_iter, max_iter-m, -1) if max_iter is not None else trange(self.max_iter - 1, self.max_iter - m, -1)
+        eye = torch.eye(len(x_k), dtype=torch.float)
+        history_stack_s = []
+        history_stack_y = []
+
+        # init x1, x0
+        y = self.fn(x_k)
+        gk = self.g(x_k)
+        H = eye
+        d_k = - H.matmul(gk.T).T
+        d_k = d_k/ torch.norm(d_k)
+        alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+        xk_1 = x_k + alpha*d_k
+        gk_1 = self.g(xk_1)
+        sk = xk_1 - x_k
+        yk = gk_1 - gk
+        sk = sk.view(-1, 1)
+        yk = yk.view(-1, 1)
+
+        history_stack_s.append(sk)
+        history_stack_y.append(yk)
+
+
+        
+              
         y_prev = None
-        H = torch.eye(len(x_k), dtype=torch.float)
-        iter_bar = trange(max_iter) if max_iter is not None else trange(self.max_iter)
-        for j in iter_bar:
+        # H = torch.eye(len(x_k), dtype=torch.float)
+        iter_bar = trange(1, max_iter) if max_iter is not None else trange(1, self.max_iter)
+        for k in iter_bar:
             # stop criterion
             y = self.fn(x_k)
             gk = self.g(x_k)
@@ -467,7 +519,26 @@ class Solver:
                 if torch.abs(y - y_prev) < self.eps:
                     print("Find optimal x:{} y:{}".format(x_k.data, y.data))
                     return (x_k, y)
+            q = gk
+            for i in range(k-1, k-m-1, -1):
+                si = history_stack_s[i-k]
+                yi = history_stack_y[i-k]
+                alpha_i = 1/(yi.T@si)@si.T@q
+                q = q - alpha_i*yi
             
+            sk_1 = history_stack_s[-1]
+            yk_1 = history_stack_y[-1]
+            gamma_k = sk_1.T @ yk_1 / (yk_1.T @ yk_1)
+
+            Hk0 = gamma_k @ eye
+
+            z = Hk0 @q
+
+            for i in range(k-m, k, 1):
+                yi = history_stack_y[]
+                beta_i = 
+
+
             d_k = - H.matmul(gk.T).T
             d_k = d_k /torch.norm(d_k) 
 
@@ -551,7 +622,9 @@ class Solver:
 def test_wood_function():
     print("=============  TEST WOOD FUNCTION ============")
     fn = wood_function
-    x0 = torch.tensor([-3, -1, -3, -1], dtype=torch.float)
+    # x0 = torch.tensor([-3, -1, -3, -1], dtype=torch.float)
+    x0 = torch.tensor([1.01]*4, dtype=torch.float)
+    # x1 = torch.tensor([1+1e-7]*4, dtype=torch.float)
     solver = Solver(
         fn = fn,
         x_0 = x0,
@@ -560,41 +633,43 @@ def test_wood_function():
         eps = 1e-8,
         max_iter = 100
     )
-    print("\t ## LINE SEARCH ##")
-    solver.reset_call_cnt()
-    x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
-    print("x:{} y:{}".format(x_ils, y_ils))
-    print("call_cnt:{}".format(solver.call_cnt))
+    print(solver.g(x0))
+    # print(solver.g(x1))
+    # print("\t ## LINE SEARCH ##")
+    # solver.reset_call_cnt()
+    # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+    # print("x:{} y:{}".format(x_ils, y_ils))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
-    print("\t ## LM ##")
-    solver.reset_call_cnt()
-    x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
-    print("x:{} y:{}".format(x_lm, y_lm))
-    print("call_cnt:{}".format(solver.call_cnt))
+    # print("\t ## LM ##")
+    # solver.reset_call_cnt()
+    # x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
+    # print("x:{} y:{}".format(x_lm, y_lm))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
-    print("\t ## DAMPED NEWTON ## ")
-    solver.reset_call_cnt()
-    x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-    print("x:{} y:{}".format(x_dn, y_dn))
-    print("call_cnt:{}".format(solver.call_cnt))
+    # print("\t ## DAMPED NEWTON ## ")
+    # solver.reset_call_cnt()
+    # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+    # print("x:{} y:{}".format(x_dn, y_dn))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
-    print("\t ## SR1 ##")
-    solver.reset_call_cnt()
-    x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-    print("x:{} y:{}".format(x_sr1, y_sr1))
-    print("call_cnt:{}".format(solver.call_cnt))
+    # print("\t ## SR1 ##")
+    # solver.reset_call_cnt()
+    # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+    # print("x:{} y:{}".format(x_sr1, y_sr1))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
-    print("\t ## BFGS ##")
-    solver.reset_call_cnt()
-    x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=0.13, gamma_0=0.01, t=1.2, max_iter=1000)
-    print("x:{} y:{}".format(x_bfgs, y_bfgs))
-    print("call_cnt:{}".format(solver.call_cnt))
+    # print("\t ## BFGS ##")
+    # solver.reset_call_cnt()
+    # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=0.13, gamma_0=0.01, t=1.2, max_iter=1000)
+    # print("x:{} y:{}".format(x_bfgs, y_bfgs))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
-    print("\t ## DFP ##")
-    solver.reset_call_cnt()
-    x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-    print("x:{} y:{}".format(x_dfp, y_dfp))
-    print("call_cnt:{}".format(solver.call_cnt))
+    # print("\t ## DFP ##")
+    # solver.reset_call_cnt()
+    # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+    # print("x:{} y:{}".format(x_dfp, y_dfp))
+    # print("call_cnt:{}".format(solver.call_cnt))
 
     return
 

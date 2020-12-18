@@ -1,6 +1,5 @@
 import os
 from re import I
-from torch._C import dtype, sparse_coo
 from tqdm import *
 import torch
 from hessian import hessian
@@ -273,6 +272,7 @@ class Solver:
         # when i= 0
         alpha = alpha_0
         Alpha[1] = Alpha[0] + Gamma[0]
+        # print(d_k.shape)
         if Alpha[1] > 0 and self.fn(x_k + Alpha[1]*d_k) >= self.fn(x_k + Alpha[0]*d_k):
             if Alpha[1] <= 0:
                 Alpha[1] = 0
@@ -411,12 +411,13 @@ class Solver:
         eye = torch.eye(len(x_k), dtype=torch.float)
         H0 = eye
 
-        history_v = []
+        history_y = []
         history_s = []
         history_rho = []
 
         iter_bar = trange(max_iter) if max_iter is not None else trange(self.max_iter)
 
+        H = eye
         for j in iter_bar:
             y = self.fn(x_k)
             gk = self.g(x_k)
@@ -427,10 +428,11 @@ class Solver:
             
             elif j > 0:
                 if torch.abs(y - y_prev) < self.eps:
+                
                     print("Find optimal x:{} y:{}".format(x_k.data, y.data))
                     return (x_k, y)
-            
-            d_k = - H.matmul(gk.T).T
+            if j == 0:
+                d_k = - H.matmul(gk.T).T
             d_k = d_k /torch.norm(d_k) 
 
             alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
@@ -445,42 +447,86 @@ class Solver:
             yk = yk.view(-1, 1)
 
             rho_k = 1/(sk.T@yk)
-            Vk = eye - rho_k@yk@sk.T
-            if len(history_v) == m:
-                history_v = history_v[1:]
-                history_s = history_s[1:]
-                history_rho = history_rho[1:]
-            history_v.append(Vk)
+            # print(rho_k.shape)
+            # print(yk.shape)
+            # print(sk.shape)
+            history_y.append(yk)
             history_s.append(sk)
             history_rho.append(rho_k)
 
-            Hk_item1 = H0
-            for v in history_v:
-                Hk_item1 = v.T@Hk_item1@v
+            if len(history_y) > m:
+                history_y = history_y[1:]
+                history_s = history_s[1:]
+                history_rho = history_rho[1:]
             
-            Hk_item2 = history_rho[0] @ history_s[0] @ history_s[0].T
-            for i, v in enumerate(history_v):
-                if len(history_v) == m :
-                    if i > 0:
-                        Hk_item2 = v.T @ Hk_item2 @ v
-                else:
-                    Hk_item2 = v.T @ Hk_item2 @ v
+            q = gk.view(-1, 1)
+            for i in range(len(history_rho)):
+                alpha_i = history_rho[-(i+1)] * history_s[i].T @ q
+                q = q - alpha_i * history_y[-(i+1)]
             
-            Hk = Hk_item1 + Hk_item2 + Vk @ history_rho[-2] @ history_s[-2] @ history_s[-2].T @ Vk + rho_k @ sk @ sk.T
-
-            H = Hk
+            if len(history_rho) > 2:
+                gamma_k = history_s[-2].T @ history_y[-2] / (history_y[-2].T @ history_y[-2])
+            else:
+                gamma_k = history_s[-1].T @ history_y[-1] / (history_y[-1].T @ history_y[-1])
+            Hk0 = gamma_k * eye
+            z = Hk0 @ q
+            for i in range(len(history_rho)):
+                beta_i = history_rho[i] * history_y[i].T @ z
+                z = z + history_s[i] *(alpha_i - beta_i)
+            
+            z = -z
+            d_k = z.squeeze(1)
+            x_k = xk_1
+            y_prev = y
+            
         print("Stop till the max iteration!")
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
 
-                
+    def bb(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter = None):
+        '''
+        params:
+            x_k : init point x_k
+            alpha_0 : init step size
+            gamma_0:  init gamma for Gold line search of step size
+            t : parameter for Gold line search
+            sigma : parameter of wolfe principle
+            rho: paramter of wolfe principle
+            max_iter: the max iteration of the algorithm
+        returns:
+            x*: Optimal x*
+            y: Optimal Value y
+        '''
+        y_prev = None
+        H = torch.eye(len(x_k), dtype=torch.float)
+        iter_bar = trange(max_iter) if max_iter else trange(self.max_iter)
+        for j in iter_bar:
+            # stop criterion
+            y = self.fn(x_k)
+            gk = self.g(x_k)
+            G = self.G(x_k)
+            # print("Iter: {}  x_k: {} y_k:{}".format(j+1, x_k.data, y.data)) 
+            if torch.norm(gk) < self.eps:
+                print("Find optimal x:{} y:{}".format(x_k, y))
+                return (x_k, y)
             
+            elif j > 0:
+                if torch.abs(y - y_prev) < self.eps:
+                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
+                    return (x_k, y)
+            
+            d_k = - gk
+            d_k = d_k/ torch.norm(d_k)
+            alpha = gk.T @ gk/ (gk.T @ G @ gk)
+            iter_bar.set_description("y:{} alpha:{}".format(y, alpha))
+           
+            xk_1 = x_k + alpha*d_k
 
-
-
-
-
-        return (x_k)
+            x_k = xk_1
+            y_prev = y
+        print("Stop till the max iteration !")
+        print(" Iter: {} x_k : {} y_k: {}".format(j+1, x_k, y))
+        return (x_k, y)
 
     def sr1(self,x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
         '''
@@ -800,17 +846,22 @@ def test_trigonometric_function(n_values=[1000]):
         # print("x:{} y:{}".format(x_bfgs, y_bfgs))
         # print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## LBFGS ##")
-        solver.reset_call_cnt()
-        x_bfgs, y_bfgs = solver.lbfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000, m=5)
-        print("x:{} y:{}".format(x_bfgs, y_bfgs))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## LBFGS ##")
+        # solver.reset_call_cnt()
+        # x_bfgs, y_bfgs = solver.lbfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000, m=5)
+        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        # print("call_cnt:{}".format(solver.call_cnt))
 
         # print("\t ## DFP ##")
         # solver.reset_call_cnt()
         # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
         # print("x:{} y:{}".format(x_dfp, y_dfp))
         # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## BB ##")
+        solver.reset_call_cnt()
+        x_bb, y_bb = solver.bb(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bb, y_bb))
+        print("call_cnt:{}".format(solver.call_cnt))
 
 
 

@@ -406,8 +406,79 @@ class Solver:
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
     
-    def lbfgs(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
-        
+    def lbfgs(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter=None, m=8):
+
+        eye = torch.eye(len(x_k), dtype=torch.float)
+        H0 = eye
+
+        history_v = []
+        history_s = []
+        history_rho = []
+
+        iter_bar = trange(max_iter) if max_iter is not None else trange(self.max_iter)
+
+        for j in iter_bar:
+            y = self.fn(x_k)
+            gk = self.g(x_k)
+            # print("Iter: {}  x_k: {} y_k:{}".format(j+1, x_k.data, y.data))
+            if torch.norm(gk) < self.eps:
+                print("Find optimal x:{} y:{}".format(x_k, y))
+                return (x_k, y)
+            
+            elif j > 0:
+                if torch.abs(y - y_prev) < self.eps:
+                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
+                    return (x_k, y)
+            
+            d_k = - H.matmul(gk.T).T
+            d_k = d_k /torch.norm(d_k) 
+
+            alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
+            # print("alpha:{} d_k:{}".format(alpha, d_k))
+            iter_bar.set_description("y:%.8f alpha:%.8f"%(y, alpha))
+            xk_1 = x_k + alpha*d_k
+            # yk_1 = self.fn(xk_1)
+            gk_1 = self.g(xk_1)
+            sk = xk_1 - x_k
+            yk = gk_1 - gk
+            sk = sk.view(-1, 1)
+            yk = yk.view(-1, 1)
+
+            rho_k = 1/(sk.T@yk)
+            Vk = eye - rho_k@yk@sk.T
+            if len(history_v) == m:
+                history_v = history_v[1:]
+                history_s = history_s[1:]
+                history_rho = history_rho[1:]
+            history_v.append(Vk)
+            history_s.append(sk)
+            history_rho.append(rho_k)
+
+            Hk_item1 = H0
+            for v in history_v:
+                Hk_item1 = v.T@Hk_item1@v
+            
+            Hk_item2 = history_rho[0] @ history_s[0] @ history_s[0].T
+            for i, v in enumerate(history_v):
+                if len(history_v) == m :
+                    if i > 0:
+                        Hk_item2 = v.T @ Hk_item2 @ v
+                else:
+                    Hk_item2 = v.T @ Hk_item2 @ v
+            
+            Hk = Hk_item1 + Hk_item2 + Vk @ history_rho[-2] @ history_s[-2] @ history_s[-2].T @ Vk + rho_k @ sk @ sk.T
+
+            H = Hk
+        print("Stop till the max iteration!")
+        print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
+        return (x_k, y)
+
+                
+            
+
+
+
+
 
         return (x_k)
 
@@ -464,7 +535,8 @@ class Solver:
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
 
-    def bfgs(self, x_k, alpha_0=0.0001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None, m=8):
+    
+    def bfgs(self, x_k, alpha_0=0.0001, gamma_0=0.0001, t=1.2, sigma=0.25, rho=0.1, max_iter=None):
         '''
         params:
             x_k : init point x_k
@@ -478,35 +550,10 @@ class Solver:
             x*: Optimal x*
             y: Optimal Value y
         '''
-        iter_bar = trange(max_iter, max_iter-m, -1) if max_iter is not None else trange(self.max_iter - 1, self.max_iter - m, -1)
-        eye = torch.eye(len(x_k), dtype=torch.float)
-        history_stack_s = []
-        history_stack_y = []
-
-        # init x1, x0
-        y = self.fn(x_k)
-        gk = self.g(x_k)
-        H = eye
-        d_k = - H.matmul(gk.T).T
-        d_k = d_k/ torch.norm(d_k)
-        alpha = self.line_search_step(x0=x_k, d0=d_k, alpha_0=alpha_0, gamma_0=gamma_0, t=t,sigma=sigma, rho=rho)
-        xk_1 = x_k + alpha*d_k
-        gk_1 = self.g(xk_1)
-        sk = xk_1 - x_k
-        yk = gk_1 - gk
-        sk = sk.view(-1, 1)
-        yk = yk.view(-1, 1)
-
-        history_stack_s.append(sk)
-        history_stack_y.append(yk)
-
-
-        
-              
         y_prev = None
-        # H = torch.eye(len(x_k), dtype=torch.float)
-        iter_bar = trange(1, max_iter) if max_iter is not None else trange(1, self.max_iter)
-        for k in iter_bar:
+        H = torch.eye(len(x_k), dtype=torch.float)
+        iter_bar = trange(max_iter) if max_iter is not None else trange(self.max_iter)
+        for j in iter_bar:
             # stop criterion
             y = self.fn(x_k)
             gk = self.g(x_k)
@@ -519,26 +566,7 @@ class Solver:
                 if torch.abs(y - y_prev) < self.eps:
                     print("Find optimal x:{} y:{}".format(x_k.data, y.data))
                     return (x_k, y)
-            q = gk
-            for i in range(k-1, k-m-1, -1):
-                si = history_stack_s[i-k]
-                yi = history_stack_y[i-k]
-                alpha_i = 1/(yi.T@si)@si.T@q
-                q = q - alpha_i*yi
             
-            sk_1 = history_stack_s[-1]
-            yk_1 = history_stack_y[-1]
-            gamma_k = sk_1.T @ yk_1 / (yk_1.T @ yk_1)
-
-            Hk0 = gamma_k @ eye
-
-            z = Hk0 @q
-
-            for i in range(k-m, k, 1):
-                yi = history_stack_y[]
-                beta_i = 
-
-
             d_k = - H.matmul(gk.T).T
             d_k = d_k /torch.norm(d_k) 
 
@@ -560,8 +588,6 @@ class Solver:
         print("Stop till the max iteration !")
         print("Iter: {} x_k : {} y_k: {}".format(j+1, x_k.data, y.data))
         return (x_k, y)
-
-
 
     def dfp(self, x_k, alpha_0=0.001, gamma_0=0.001, t=1.2, sigma=0.25, rho=0.1, max_iter = None):
         '''
@@ -727,7 +753,7 @@ def test_extended_poweel_singular_function(m_values=[20, 40, 60, 80, 100]):
         print("x:{} y:{}".format(x_dfp, y_dfp))
         print("call_cnt:{}".format(solver.call_cnt))
 
-def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
+def test_trigonometric_function(n_values=[1000]):
     for n in n_values:
         print("============= {} =========".format("TRIGONOMETRIC FUNCTION (n:{})".format(n)))
 
@@ -744,44 +770,51 @@ def test_trigonometric_function(n_values=[20, 40, 60, 80, 100]):
         max_iter = 100
     )
        
-        print("\t ## LINE SEARCH ##")
-        solver.reset_call_cnt()
-        x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
-        print("x:{} y:{}".format(x_ils, y_ils))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## LINE SEARCH ##")
+        # solver.reset_call_cnt()
+        # x_ils, y_ils = solver.line_search(x_k=solver.x_0, alpha_0=0.01, gamma_0=0.0001, t=1.2, max_iter=1500)
+        # print("x:{} y:{}".format(x_ils, y_ils))
+        # print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## LM ##")
-        solver.reset_call_cnt()
-        x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
-        print("x:{} y:{}".format(x_lm, y_lm))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## LM ##")
+        # solver.reset_call_cnt()
+        # x_lm, y_lm = solver.LM_method(solver.x_0, alpha_0=0.01, gamma_0=0.001, t=1.2, max_iter=1500)
+        # print("x:{} y:{}".format(x_lm, y_lm))
+        # print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## DAMPED NEWTON ## ")
-        solver.reset_call_cnt()
-        x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
-        print("x:{} y:{}".format(x_dn, y_dn))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## DAMPED NEWTON ## ")
+        # solver.reset_call_cnt()
+        # x_dn, y_dn = solver.damped_newton_method(solver.x_0, alpha_0=0.1, gamma_0=0.001, t=1.2, max_iter=1500)
+        # print("x:{} y:{}".format(x_dn, y_dn))
+        # print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## SR1 ##")
-        solver.reset_call_cnt()
-        x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
-        print("x:{} y:{}".format(x_sr1, y_sr1))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## SR1 ##")
+        # solver.reset_call_cnt()
+        # x_sr1, y_sr1 = solver.sr1(solver.x_0, alpha_0=1e-3, gamma_0=0.001, t=1.2, max_iter=1500)
+        # print("x:{} y:{}".format(x_sr1, y_sr1))
+        # print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## BFGS ##")
+        # print("\t ## BFGS ##")
+        # solver.reset_call_cnt()
+        # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        # print("call_cnt:{}".format(solver.call_cnt))
+
+        print("\t ## LBFGS ##")
         solver.reset_call_cnt()
-        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        x_bfgs, y_bfgs = solver.lbfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000, m=5)
         print("x:{} y:{}".format(x_bfgs, y_bfgs))
         print("call_cnt:{}".format(solver.call_cnt))
 
-        print("\t ## DFP ##")
-        solver.reset_call_cnt()
-        x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
-        print("x:{} y:{}".format(x_dfp, y_dfp))
-        print("call_cnt:{}".format(solver.call_cnt))
+        # print("\t ## DFP ##")
+        # solver.reset_call_cnt()
+        # x_dfp, y_dfp = solver.dfp(solver.x_0, alpha_0=1e-1, gamma_0=0.001, t=1.2, max_iter=1500)
+        # print("x:{} y:{}".format(x_dfp, y_dfp))
+        # print("call_cnt:{}".format(solver.call_cnt))
+
 
 
 if __name__ == "__main__":
-    test_wood_function()
-    test_extended_poweel_singular_function()
+    # test_wood_function()
+    # test_extended_poweel_singular_function()
     test_trigonometric_function()

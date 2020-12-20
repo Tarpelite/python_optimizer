@@ -50,7 +50,7 @@ def trigonometric_function(n):
         return res
     return func
 
-def penalty_function_I(n):
+def penalty_I_function(n):
     alpha = 1e-5
     def func(x):
         res = 0.00000
@@ -422,15 +422,9 @@ class Solver:
             y = self.fn(x_k)
             gk = self.g(x_k)
             # print("Iter: {}  x_k: {} y_k:{}".format(j+1, x_k.data, y.data))
-            if torch.norm(gk) < self.eps:
+            if torch.norm(gk) < self.eps * max(1, torch.norm(x_k)):
                 print("Find optimal x:{} y:{}".format(x_k, y))
                 return (x_k, y)
-            
-            elif j > 0:
-                if torch.abs(y - y_prev) < self.eps:
-                
-                    print("Find optimal x:{} y:{}".format(x_k.data, y.data))
-                    return (x_k, y)
             if j == 0:
                 d_k = - H.matmul(gk.T).T
             d_k = d_k /torch.norm(d_k) 
@@ -470,6 +464,7 @@ class Solver:
                 gamma_k = history_s[-1].T @ history_y[-1] / (history_y[-1].T @ history_y[-1])
             Hk0 = gamma_k * eye
             z = Hk0 @ q
+
             for i in range(len(history_rho)):
                 beta_i = history_rho[i] * history_y[i].T @ z
                 z = z + history_s[i] *(alpha_i - beta_i)
@@ -805,7 +800,7 @@ def test_trigonometric_function(n_values=[1000]):
 
         fn = trigonometric_function(n)
         
-        x0 = torch.tensor([1/n]*n, dtype=torch.float)
+        x0 = torch.tensor([1/n]*n, dtype=torch.float).to(device)
         
         solver = Solver(
         fn = fn,
@@ -840,11 +835,11 @@ def test_trigonometric_function(n_values=[1000]):
         # print("x:{} y:{}".format(x_sr1, y_sr1))
         # print("call_cnt:{}".format(solver.call_cnt))
 
-        # print("\t ## BFGS ##")
-        # solver.reset_call_cnt()
-        # x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
-        # print("x:{} y:{}".format(x_bfgs, y_bfgs))
-        # print("call_cnt:{}".format(solver.call_cnt))
+        print("\t ## BFGS ##")
+        solver.reset_call_cnt()
+        x_bfgs, y_bfgs = solver.bfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_bfgs, y_bfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
 
         # print("\t ## LBFGS ##")
         # solver.reset_call_cnt()
@@ -864,8 +859,31 @@ def test_trigonometric_function(n_values=[1000]):
         print("call_cnt:{}".format(solver.call_cnt))
 
 
+def test_penalty_I_function(n_values=[1000]):
+    for n in n_values:
+        print("============= {} =========".format("PENALTY I FUNCTION (n:{})".format(n)))
+        fn = penalty_I_function(n)
+
+        x0 = torch.tensor([i+1 for i in range(n)]).to(device)
+
+        solver = Solver(
+            fn = fn,
+            x_0 = x0.float(),
+            eps=1e-5,
+            max_iter=100
+        )
+        print("\t ## LBFGS ##")
+        solver.reset_call_cnt()
+        x_lbfgs, y_lbfgs = solver.lbfgs(solver.x_0, alpha_0=1.15, gamma_0=0.001, t=1.5, max_iter=1000)
+        print("x:{} y:{}".format(x_lbfgs, y_lbfgs))
+        print("call_cnt:{}".format(solver.call_cnt))
+
+
+
+
 
 if __name__ == "__main__":
     # test_wood_function()
     # test_extended_poweel_singular_function()
+    test_penalty_I_function()
     test_trigonometric_function()
